@@ -73,6 +73,10 @@ async function loadTemplatePDF() {
             pageHeight = firstPage.getHeight();
             pageWidth = firstPage.getWidth();
             console.log(`✅ Размеры страницы: ${pageWidth} x ${pageHeight}`);
+            // Проверяем, соответствует ли размер ожидаемому (1122 x 793)
+            if (Math.abs(pageWidth - 1122) > 10 || Math.abs(pageHeight - 793) > 10) {
+                console.warn(`⚠️ Размеры страницы отличаются от ожидаемых (1122 x 793). Текущие: ${pageWidth} x ${pageHeight}`);
+            }
         }
         
         isTemplateLoaded = true;
@@ -267,8 +271,45 @@ async function generatePDF() {
         const pageHeight = page.getHeight();
         
         // 3. Загружаем шрифты с поддержкой кириллицы
-        const font = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-        const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+        // Используем шрифт Roboto из CDN (TTF формат, поддерживает кириллицу)
+        let font, boldFont;
+        try {
+            // Загружаем обычный шрифт Roboto Regular (TTF)
+            const fontResponse = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/Roboto-Regular.ttf');
+            if (!fontResponse.ok) {
+                throw new Error('Не удалось загрузить обычный шрифт');
+            }
+            const fontBytes = await fontResponse.arrayBuffer();
+            font = await pdfDoc.embedFont(fontBytes);
+            console.log('✅ Обычный шрифт загружен');
+            
+            // Загружаем жирный шрифт Roboto Bold (TTF)
+            const boldFontResponse = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/Roboto-Bold.ttf');
+            if (!boldFontResponse.ok) {
+                throw new Error('Не удалось загрузить жирный шрифт');
+            }
+            const boldFontBytes = await boldFontResponse.arrayBuffer();
+            boldFont = await pdfDoc.embedFont(boldFontBytes);
+            console.log('✅ Жирный шрифт загружен');
+        } catch (fontError) {
+            console.error('Ошибка загрузки шрифтов:', fontError);
+            // Если не получилось, пробуем альтернативный источник
+            try {
+                const altFontResponse = await fetch('https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf');
+                const altBoldFontResponse = await fetch('https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf');
+                
+                if (altFontResponse.ok && altBoldFontResponse.ok) {
+                    font = await pdfDoc.embedFont(await altFontResponse.arrayBuffer());
+                    boldFont = await pdfDoc.embedFont(await altBoldFontResponse.arrayBuffer());
+                    console.log('✅ Шрифты загружены из альтернативного источника');
+                } else {
+                    throw new Error('Альтернативный источник тоже не работает');
+                }
+            } catch (altError) {
+                console.error('Критическая ошибка: не удалось загрузить шрифты с поддержкой кириллицы:', altError);
+                throw new Error('Не удалось загрузить шрифты с поддержкой кириллицы. Проверьте интернет-соединение.');
+            }
+        }
         
         // 4. Добавляем текст в PDF
         // В PDF координата Y идет снизу вверх, поэтому нужно конвертировать
