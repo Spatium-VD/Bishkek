@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор сертификатов ПД и Синержи </title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/pdf-lib@^1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎓 Генератор сертификатов</h1>
+            <p class="subtitle">Заполните форму, чтобы создать персонализированный сертификат в формате PDF</p>
+        </header>
+
+        <main>
+            <div class="form-card">
+                <div class="form-group">
+                    <label for="name">Имя получателя *</label>
+                    <input type="text" id="name" placeholder="Например: Айгерим Сатыбалдиева" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="code">Код сертификата *</label>
+                    <input type="text" id="code" placeholder="Например: BISH-2024-001" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="congrats">Текст поздравления</label>
+                    <textarea id="congrats" rows="4" placeholder="Введите текст поздравления...">Поздравляем с успешным завершением! Ваши достижения впечатляют и вдохновляют!</textarea>
+                </div>
+
+                <div class="button-group">
+                    <button id="previewBtn" class="btn btn-secondary">
+                        👁️ Предпросмотр
+                    </button>
+                    <button id="generateBtn" class="btn btn-primary">
+                        🖨️ Создать и скачать PDF
+                    </button>
+                </div>
+            </div>
+
+            <div class="preview-card">
+                <h3>📄 Предварительный просмотр</h3>
+                <p class="preview-note">Текст будет размещен на вашем шаблоне. Убедитесь, что координаты верны.</p>
+                
+                <div class="preview-wrapper">
+                    <!-- Здесь будет отображаться шаблон с текстом -->
+                    <canvas id="previewCanvas"></canvas>
+                </div>
+                
+                <div class="status" id="status"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Проект "Бишкек" | Генератор сертификатов | 
+                <a href="https://github.com/ваш-логин/Бишкек" target="_blank">GitHub репозиторий</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
