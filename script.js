@@ -8,9 +8,7 @@ const CONFIG = {
     // Координаты рамок: x, y, width, height
     textPositions: {
         // сумма подарка: x: 504, y: 233, width: 261, height: 73
-        amount: { x: 504, y: 233, w: 261, h: 73 },
-        // Имя: x: 52, y: 347, width: 337, height: 64
-        name: { x: 52, y: 347, w: 337, h: 64 },
+        amount: { x: 514, y: 225, w: 261, h: 73 }, // Сдвинуто немного выше и правее
         // Поздравления: x: 52, y: 441, width: 472, height: 155
         congrats: { x: 52, y: 441, w: 472, h: 155 },
         // код сертификата: x: 52, y: 671, width: 397, height: 71
@@ -20,18 +18,21 @@ const CONFIG = {
     // Настройки шрифтов
     fontSize: {
         amount: 32,   // Размер для суммы подарка
-        name: 36,     // Размер для имени
         code: 24,     // Размер для кода
-        congrats: 18  // Размер для поздравления
+        congrats: 22  // Размер для поздравления (увеличено для лучшей читаемости)
     },
     
-    // Цвет текста в формате RGB (от 0 до 1)
-    fontColor: { r: 0, g: 0, b: 0 }, // Черный
-    nameColor: { r: 1, g: 1, b: 1 }, // Белый для имени
+    // Цвет текста
+    fontColor: { r: 0, g: 0, b: 0 }, // Черный для кода и поздравления
+    amountColor: { r: 1, g: 1, b: 1 }, // БЕЛЫЙ для суммы подарка
     
     // Максимальная ширина текста поздравления (в пикселях)
-    congratsMaxWidth: 472
+    congratsMaxWidth: 472,
+    
+    // Смещение для суммы подарка (немного выше и правее)
+    amountOffset: { x: 10, y: -8 }
 };
+
 // ================= КОНЕЦ КОНФИГУРАЦИИ =================
 
 // Получаем элементы DOM
@@ -40,9 +41,10 @@ const amountInput = document.getElementById('amount');
 const codeInput = document.getElementById('code');
 const congratsInput = document.getElementById('congrats');
 const previewBtn = document.getElementById('previewBtn');
-const generateBtn = document.getElementById('generateBtn');
+const downloadImageBtn = document.getElementById('downloadImageBtn');
 const previewCanvas = document.getElementById('previewCanvas');
 const statusDiv = document.getElementById('status');
+const highQualityCanvas = document.getElementById('highQualityCanvas');
 
 // Состояние загрузки шаблона
 let templatePdfBytes = null;
@@ -50,12 +52,16 @@ let isTemplateLoaded = false;
 let pageHeight = 0;
 let pageWidth = 0;
 
+// Создаем скрытый canvas для высококачественного изображения
+const offscreenCanvas = document.createElement('canvas');
+const offscreenCtx = offscreenCanvas.getContext('2d');
+
 // Функция загрузки PDF шаблона
 async function loadTemplatePDF() {
     try {
         // Проверяем, что PDFLib доступен
-        if (typeof PDFLib === 'undefined') {
-            throw new Error('PDFLib не загружен. Проверьте подключение скрипта.');
+        if (typeof pdfjsLib === 'undefined') {
+            throw new Error('pdf.js не загружен. Проверьте подключение скрипта.');
         }
         
         const response = await fetch(CONFIG.templateUrl);
@@ -66,26 +72,20 @@ async function loadTemplatePDF() {
         templatePdfBytes = arrayBuffer;
         
         // Загружаем PDF чтобы получить размеры страницы
-        const { PDFDocument } = PDFLib;
-        const pdfDoc = await PDFDocument.load(arrayBuffer);
-        const pages = pdfDoc.getPages();
-        if (pages.length > 0) {
-            const firstPage = pages[0];
-            pageHeight = firstPage.getHeight();
-            pageWidth = firstPage.getWidth();
-            console.log(`✅ Размеры страницы: ${pageWidth} x ${pageHeight}`);
-            // Проверяем, соответствует ли размер ожидаемому (1122 x 793)
-            if (Math.abs(pageWidth - 1122) > 10 || Math.abs(pageHeight - 793) > 10) {
-                console.warn(`⚠️ Размеры страницы отличаются от ожидаемых (1122 x 793). Текущие: ${pageWidth} x ${pageHeight}`);
-            }
-        }
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+        
+        // Получаем размеры страницы
+        const viewport = page.getViewport({ scale: 1.0 });
+        pageHeight = viewport.height;
+        pageWidth = viewport.width;
+        
+        console.log(`✅ Размеры страницы: ${pageWidth} x ${pageHeight}`);
         
         isTemplateLoaded = true;
         console.log('✅ Шаблон сертификата загружен успешно');
-        if (statusDiv) {
-            // Не показываем сообщение об успехе автоматически, только при ошибке
-            // showStatus('Шаблон загружен успешно', 'success');
-        }
         return true;
     } catch (error) {
         console.error('Ошибка загрузки шаблона:', error);
@@ -96,7 +96,6 @@ async function loadTemplatePDF() {
             errorMessage += '. Файл открыт через file://. Запустите через HTTP сервер: python3 -m http.server 8000, затем откройте http://localhost:8000';
         }
         
-        // Устанавливаем флаг в false явно
         isTemplateLoaded = false;
         templatePdfBytes = null;
         
@@ -118,15 +117,118 @@ function showStatus(message, type = 'success') {
     }, 5000);
 }
 
+// Функция генерации текста поздравления
+function generateCongratsText(name) {
+    const baseText = congratsInput.value.trim();
+    if (!name.trim()) return baseText;
+    
+    // Добавляем имя в начало поздравления
+    return `${name}, ${baseText}`;
+}
+
+// Функция рендеринга сертификата на canvas
+async function renderCertificateToCanvas(canvas, scale = 1) {
+    if (!isTemplateLoaded || !templatePdfBytes) {
+        throw new Error('Шаблон не загружен');
+    }
+    
+    if (!nameInput.value.trim() || !codeInput.value.trim()) {
+        throw new Error('Заполните имя и код');
+    }
+    
+    try {
+        // Используем pdf.js для рендеринга PDF на canvas
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        
+        const loadingTask = pdfjsLib.getDocument({ data: templatePdfBytes });
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+        
+        // Получаем размеры страницы
+        const viewportForScale = page.getViewport({ scale: 1.0 });
+        const actualPageWidth = pageWidth || viewportForScale.width;
+        const actualPageHeight = pageHeight || viewportForScale.height;
+        
+        // Масштаб для отображения
+        const viewport = page.getViewport({ scale: scale });
+        
+        // Настраиваем canvas
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        
+        // Заполняем белым фоном (на случай прозрачности в PDF)
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Рендерим PDF страницу
+        await page.render({
+            canvasContext: ctx,
+            viewport: viewport
+        }).promise;
+        
+        // Добавляем текст поверх
+        const textScale = scale;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        
+        // Сумма подарка - БЕЛЫМ цветом, немного выше и правее
+        if (amountInput && amountInput.value.trim()) {
+            const amountX = (CONFIG.textPositions.amount.x + CONFIG.amountOffset.x) * textScale;
+            const amountY = (CONFIG.textPositions.amount.y + CONFIG.amountOffset.y) * textScale;
+            const amountCenterY = amountY + CONFIG.textPositions.amount.h * textScale / 2;
+            const amountBaselineY = amountCenterY - CONFIG.fontSize.amount * 0.75 * textScale;
+            
+            ctx.font = `bold ${CONFIG.fontSize.amount * textScale}px Arial`;
+            ctx.fillStyle = `rgb(${Math.round(CONFIG.amountColor.r * 255)}, ${Math.round(CONFIG.amountColor.g * 255)}, ${Math.round(CONFIG.amountColor.b * 255)})`;
+            ctx.fillText(amountInput.value.trim(), amountX, amountBaselineY);
+        }
+        
+        // Поздравление - ЧЕРНЫМ, с именем в начале
+        const congratsText = generateCongratsText(nameInput.value);
+        ctx.font = `${CONFIG.fontSize.congrats * textScale}px Arial`;
+        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
+        
+        const congratsLines = splitTextIntoLines(
+            congratsText, 
+            CONFIG.textPositions.congrats.w * textScale, 
+            ctx
+        );
+        
+        const lineHeight = (CONFIG.fontSize.congrats + 8) * textScale;
+        const totalTextHeight = (congratsLines.length - 1) * lineHeight;
+        const congratsYOffset = (CONFIG.textPositions.congrats.h * textScale - totalTextHeight) / 2;
+        const firstLineBaselineY = CONFIG.textPositions.congrats.y * textScale + congratsYOffset + CONFIG.fontSize.congrats * 0.75 * textScale;
+        
+        congratsLines.forEach((line, index) => {
+            if (line.trim()) {
+                ctx.fillText(
+                    line, 
+                    CONFIG.textPositions.congrats.x * textScale, 
+                    firstLineBaselineY + (index * lineHeight)
+                );
+            }
+        });
+        
+        // Код сертификата - ЧЕРНЫМ
+        const codeCenterY = CONFIG.textPositions.code.y + CONFIG.textPositions.code.h / 2;
+        const codeBaselineY = codeCenterY - CONFIG.fontSize.code * 0.75;
+        
+        ctx.font = `bold ${CONFIG.fontSize.code * textScale}px Arial`;
+        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
+        ctx.fillText(codeInput.value, CONFIG.textPositions.code.x * textScale, codeBaselineY * textScale);
+        
+        return true;
+    } catch (error) {
+        console.error('Ошибка рендеринга:', error);
+        throw error;
+    }
+}
+
 // Функция предпросмотра
 async function showPreview() {
     if (!isTemplateLoaded || !templatePdfBytes) {
-        if (!templatePdfBytes) {
-            showStatus('Ошибка: шаблон не загружен. Проверьте консоль браузера (F12) или обновите страницу.', 'error');
-            console.error('Шаблон не загружен. Попробуйте перезагрузить страницу.');
-        } else {
-            showStatus('Шаблон еще загружается. Подождите немного.', 'error');
-        }
+        showStatus('Шаблон не загружен. Пожалуйста, обновите страницу.', 'error');
         return;
     }
     
@@ -136,117 +238,21 @@ async function showPreview() {
     }
     
     try {
-        // Используем pdf.js для рендеринга PDF на canvas
-        // Проверяем доступность pdf.js
-        let pdfjs = null;
-        if (typeof pdfjsLib !== 'undefined') {
-            pdfjs = pdfjsLib;
-        } else if (typeof window !== 'undefined' && window.pdfjsLib) {
-            pdfjs = window.pdfjsLib;
-        }
+        // Получаем размеры страницы для расчета масштаба предпросмотра
+        const previewScale = Math.min(400 / pageWidth, 600 / pageHeight);
         
-        if (!pdfjs || !pdfjs.getDocument) {
-            showStatus('Предпросмотр временно недоступен. Используйте кнопку генерации PDF.', 'error');
-            console.warn('pdf.js не найдена, предпросмотр отключен');
-            return;
-        }
-        
-        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-        
-        const loadingTask = pdfjs.getDocument({ data: templatePdfBytes });
-        const pdf = await loadingTask.promise;
-        const page = await pdf.getPage(1);
-        
-        // Получаем размеры страницы из PDF
-        const viewportForScale = page.getViewport({ scale: 1.0 });
-        const actualPageWidth = pageWidth || viewportForScale.width;
-        const actualPageHeight = pageHeight || viewportForScale.height;
-        
-        // Масштаб для отображения
-        const scale = Math.min(400 / actualPageWidth, 600 / actualPageHeight);
-        const viewport = page.getViewport({ scale: scale });
-        
-        // Настраиваем canvas
-        const ctx = previewCanvas.getContext('2d');
-        previewCanvas.height = viewport.height;
-        previewCanvas.width = viewport.width;
-        
-        // Рендерим PDF страницу
-        await page.render({
-            canvasContext: ctx,
-            viewport: viewport
-        }).promise;
-        
-        // Добавляем текст поверх (соответствует новому расположению)
-        const textScale = scale;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        
-        // ИМЯ - БЕЛЫМ цветом, выше (на позиции amount)
-        const nameCenterY = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
-        const nameBaselineY = nameCenterY - CONFIG.fontSize.name * 0.75;
-        ctx.font = `bold ${CONFIG.fontSize.name * textScale}px Arial`;
-        ctx.fillStyle = `rgb(${Math.round(CONFIG.nameColor.r * 255)}, ${Math.round(CONFIG.nameColor.g * 255)}, ${Math.round(CONFIG.nameColor.b * 255)})`;
-        ctx.fillText(nameInput.value, CONFIG.textPositions.amount.x * textScale, nameBaselineY * textScale);
-        
-        // Сумма подарка - ЧЕРНЫМ, выше и левее
-        if (amountInput && amountInput.value.trim()) {
-            const amountYPos = CONFIG.textPositions.name.y - 50;
-            const amountCenterY = amountYPos + CONFIG.textPositions.name.h / 2;
-            const amountBaselineY = amountCenterY - CONFIG.fontSize.amount * 0.75;
-            ctx.font = `bold ${CONFIG.fontSize.amount * textScale}px Arial`;
-            ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
-            ctx.fillText(amountInput.value.trim(), CONFIG.textPositions.name.x * textScale, amountBaselineY * textScale);
-        }
-        
-        // Поздравление - ЧЕРНЫМ, на месте имени (позиция name)
-        ctx.font = `${CONFIG.fontSize.congrats * textScale}px Arial`;
-        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
-        const congratsLines = splitTextIntoLines(
-            congratsInput.value, 
-            CONFIG.textPositions.name.w * textScale, 
-            ctx
-        );
-        const lineHeight = (CONFIG.fontSize.congrats + 5) * textScale;
-        const totalTextHeight = (congratsLines.length - 1) * lineHeight;
-        const congratsYOffset = (CONFIG.textPositions.name.h * textScale - totalTextHeight) / 2;
-        const firstLineBaselineY = CONFIG.textPositions.name.y * textScale + congratsYOffset + CONFIG.fontSize.congrats * 0.75 * textScale;
-        
-        congratsLines.forEach((line, index) => {
-            if (line.trim()) {
-                ctx.fillText(
-                    line, 
-                    CONFIG.textPositions.name.x * textScale, 
-                    firstLineBaselineY + (index * lineHeight)
-                );
-            }
-        });
-        
-        // Код сертификата - ЧЕРНЫМ, на месте поздравления (позиция congrats)
-        const codeCenterY = CONFIG.textPositions.congrats.y + CONFIG.textPositions.congrats.h / 2;
-        const codeBaselineY = codeCenterY - CONFIG.fontSize.code * 0.75;
-        ctx.font = `bold ${CONFIG.fontSize.code * textScale}px Arial`;
-        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
-        ctx.fillText(codeInput.value, CONFIG.textPositions.congrats.x * textScale, codeBaselineY * textScale);
-        
-        showStatus('Предпросмотр обновлен. Проверьте расположение текста.', 'success');
-        
+        await renderCertificateToCanvas(previewCanvas, previewScale);
+        showStatus('Предпросмотр обновлен', 'success');
     } catch (error) {
         console.error('Ошибка предпросмотра:', error);
-        showStatus(`Ошибка предпросмотра: ${error.message}. Генерация PDF все равно работает.`, 'error');
+        showStatus(`Ошибка предпросмотра: ${error.message}`, 'error');
     }
 }
 
-// Функция генерации PDF
-async function generatePDF() {
+// Функция скачивания изображения в высоком качестве
+async function downloadHighQualityImage() {
     if (!isTemplateLoaded || !templatePdfBytes) {
-        // Проверяем, была ли попытка загрузки
-        if (!templatePdfBytes) {
-            showStatus('Ошибка: шаблон не загружен. Проверьте консоль браузера (F12) или обновите страницу.', 'error');
-            console.error('Шаблон не загружен. Попробуйте перезагрузить страницу.');
-        } else {
-            showStatus('Шаблон еще загружается. Подождите немного.', 'error');
-        }
+        showStatus('Шаблон не загружен. Пожалуйста, обновите страницу.', 'error');
         return;
     }
     
@@ -255,261 +261,161 @@ async function generatePDF() {
         return;
     }
     
-    showStatus('⏳ Создаю PDF-сертификат...', 'success');
+    showStatus('⏳ Создаю изображение в высоком качестве...', 'success');
     
     try {
-        // Проверяем наличие PDFLib
-        if (typeof PDFLib === 'undefined') {
-            throw new Error('Библиотека PDFLib не загружена. Обновите страницу.');
-        }
+        // Рендерим в высоком качестве (масштаб 2x для четкости)
+        const highQualityScale = 2;
         
-        // 1. Загружаем существующий PDF шаблон
-        const { PDFDocument, StandardFonts } = PDFLib;
-        const pdfDoc = await PDFDocument.load(templatePdfBytes);
+        // Используем скрытый canvas для высококачественного рендеринга
+        offscreenCanvas.width = pageWidth * highQualityScale;
+        offscreenCanvas.height = pageHeight * highQualityScale;
         
-        // 2. Получаем первую страницу
-        const pages = pdfDoc.getPages();
-        if (pages.length === 0) {
-            throw new Error('Шаблон PDF не содержит страниц');
-        }
-        const page = pages[0];
-        const pageHeight = page.getHeight();
-        
-        // 3. Загружаем шрифты с поддержкой кириллицы
-        // Используем шрифт DejaVu Sans (поддерживает кириллицу)
-        let font, boldFont;
-        try {
-            // Используем DejaVu Sans из надежного источника
-            const fontUrl = 'https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf';
-            const boldFontUrl = 'https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf';
-            
-            const [fontResponse, boldFontResponse] = await Promise.all([
-                fetch(fontUrl),
-                fetch(boldFontUrl)
-            ]);
-            
-            if (!fontResponse.ok || !boldFontResponse.ok) {
-                throw new Error('Не удалось загрузить шрифты');
-            }
-            
-            const [fontBytes, boldFontBytes] = await Promise.all([
-                fontResponse.arrayBuffer(),
-                boldFontResponse.arrayBuffer()
-            ]);
-            
-            font = await pdfDoc.embedFont(fontBytes);
-            boldFont = await pdfDoc.embedFont(boldFontBytes);
-            console.log('✅ Шрифты DejaVu Sans загружены успешно');
-        } catch (fontError) {
-            console.error('Ошибка загрузки DejaVu, пробую Roboto:', fontError);
-            try {
-                // Резервный вариант - Roboto из другого источника
-                const fontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf';
-                const boldFontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf';
-                
-                const [fontResponse, boldFontResponse] = await Promise.all([
-                    fetch(fontUrl),
-                    fetch(boldFontUrl)
-                ]);
-                
-                if (fontResponse.ok && boldFontResponse.ok) {
-                    font = await pdfDoc.embedFont(await fontResponse.arrayBuffer());
-                    boldFont = await pdfDoc.embedFont(await boldFontResponse.arrayBuffer());
-                    console.log('✅ Шрифты Roboto загружены');
-                } else {
-                    throw new Error('Не удалось загрузить резервные шрифты');
-                }
-            } catch (altError) {
-                console.error('Критическая ошибка загрузки шрифтов:', altError);
-                throw new Error('Не удалось загрузить шрифты с поддержкой кириллицы. Проверьте интернет-соединение.');
-            }
-        }
-        
-        // 4. Добавляем текст в PDF согласно требованиям
-        // В PDF координата Y идет снизу вверх, поэтому нужно конвертировать
-        // page.drawText использует Y как baseline (примерно 0.75 * fontSize от верха текста)
-        
-        // ИМЯ - БЕЛЫМ цветом, выше (на позиции amount)
-        const nameCenterFromTop = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
-        const nameBaselineFromTop = nameCenterFromTop - CONFIG.fontSize.name * 0.75;
-        const nameY = pageHeight - nameBaselineFromTop;
-        page.drawText(nameInput.value, {
-            x: CONFIG.textPositions.amount.x,
-            y: nameY,
-            size: CONFIG.fontSize.name,
-            font: boldFont,
-            color: PDFLib.rgb(CONFIG.nameColor.r, CONFIG.nameColor.g, CONFIG.nameColor.b), // БЕЛЫЙ
-        });
-        
-        // Сумма подарка - ЧЕРНЫМ, выше и левее (позиция name, но выше)
-        if (amountInput && amountInput.value.trim()) {
-            // Используем позицию name, но сдвигаем выше на 50 пикселей
-            const amountYPos = CONFIG.textPositions.name.y - 50;
-            const amountCenterFromTop = amountYPos + CONFIG.textPositions.name.h / 2;
-            const amountBaselineFromTop = amountCenterFromTop - CONFIG.fontSize.amount * 0.75;
-            const amountY = pageHeight - amountBaselineFromTop;
-            page.drawText(amountInput.value.trim(), {
-                x: CONFIG.textPositions.name.x, // Левее
-                y: amountY,
-                size: CONFIG.fontSize.amount,
-                font: boldFont,
-                color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b), // ЧЕРНЫЙ
-            });
-        }
-        
-        // Поздравление - ЧЕРНЫМ, на месте имени (позиция name)
-        const avgCharWidth = CONFIG.fontSize.congrats * 0.6;
-        const maxCharsPerLine = Math.floor(CONFIG.textPositions.name.w / avgCharWidth);
-        const congratsLines = splitTextIntoLines(congratsInput.value, maxCharsPerLine);
-        const lineHeight = CONFIG.fontSize.congrats + 4;
-        const totalTextHeight = (congratsLines.length - 1) * lineHeight;
-        const congratsYOffset = (CONFIG.textPositions.name.h - totalTextHeight) / 2;
-        const firstLineBaselineFromBlockTop = congratsYOffset + CONFIG.fontSize.congrats * 0.75;
-        const firstLineBaselineFromTop = CONFIG.textPositions.name.y + firstLineBaselineFromBlockTop;
-        const firstLineY = pageHeight - firstLineBaselineFromTop;
-        
-        congratsLines.forEach((line, index) => {
-            if (line.trim()) {
-                page.drawText(line, {
-                    x: CONFIG.textPositions.name.x,
-                    y: firstLineY - (index * lineHeight),
-                    size: CONFIG.fontSize.congrats,
-                    font: font,
-                    color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b), // ЧЕРНЫЙ
-                });
-            }
-        });
-        
-        // Код сертификата - ЧЕРНЫМ, на месте поздравления (позиция congrats)
-        const codeCenterFromTop = CONFIG.textPositions.congrats.y + CONFIG.textPositions.congrats.h / 2;
-        const codeBaselineFromTop = codeCenterFromTop - CONFIG.fontSize.code * 0.75;
-        const codeY = pageHeight - codeBaselineFromTop;
-        page.drawText(codeInput.value, {
-            x: CONFIG.textPositions.congrats.x,
-            y: codeY,
-            size: CONFIG.fontSize.code,
-            font: boldFont,
-            color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b), // ЧЕРНЫЙ
-        });
-        
-        // 5. Сохраняем PDF и предлагаем скачать
-        const pdfBytes = await pdfDoc.save();
-        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
+        await renderCertificateToCanvas(offscreenCanvas, highQualityScale);
         
         // Создаем ссылку для скачивания
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Certificate_${nameInput.value.replace(/\s+/g, '_')}.pdf`;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        
-        // Используем requestAnimationFrame для надежного скачивания
-        requestAnimationFrame(() => {
-            try {
-                link.click();
-                console.log('✅ Скачивание PDF запущено');
-                showStatus(`✅ Сертификат для "${nameInput.value}" успешно создан и скачан!`, 'success');
-                
-                // Удаляем ссылку и освобождаем память через небольшую задержку
-                setTimeout(() => {
-                    if (document.body.contains(link)) {
-                        document.body.removeChild(link);
-                    }
-                    URL.revokeObjectURL(url);
-                }, 200);
-            } catch (error) {
-                console.error('Ошибка при скачивании:', error);
-                showStatus(`Ошибка скачивания: ${error.message}. Попробуйте еще раз.`, 'error');
-                if (document.body.contains(link)) {
-                    document.body.removeChild(link);
-                }
-            }
-        });
+        offscreenCanvas.toBlob((blob) => {
+            const url = URL.createObjectURL(blob);
+            
+            // Создаем временную ссылку для скачивания
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Новогодний_сертификат_${nameInput.value.replace(/\s+/g, '_')}.png`;
+            
+            // Стилизуем скрыто
+            link.style.position = 'fixed';
+            link.style.top = '-100px';
+            link.style.left = '-100px';
+            link.style.opacity = '0';
+            
+            document.body.appendChild(link);
+            
+            // Имитируем клик для скачивания
+            link.click();
+            
+            // Очистка
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            showStatus(`✅ Сертификат для "${nameInput.value}" создан! Изображение скачивается...`, 'success');
+        }, 'image/png', 1.0); // Качество 1.0 (максимальное)
         
     } catch (error) {
-        console.error('Ошибка генерации PDF:', error);
+        console.error('Ошибка создания изображения:', error);
         showStatus(`❌ Ошибка: ${error.message}`, 'error');
     }
 }
 
+// Функция показа изображения в высоком качестве для сохранения
+async function showHighQualityImage() {
+    if (!isTemplateLoaded || !templatePdfBytes) {
+        return;
+    }
+    
+    try {
+        // Рендерим в высоком качестве (оригинальный размер)
+        await renderCertificateToCanvas(highQualityCanvas, 1);
+        
+        // Показываем canvas
+        highQualityCanvas.style.display = 'block';
+        
+        // Добавляем инструкцию
+        const instruction = document.createElement('p');
+        instruction.className = 'download-instruction';
+        instruction.innerHTML = 'Для сохранения сертификата:<br>1. Нажмите на изображение правой кнопкой мыши<br>2. Выберите "Сохранить изображение как..."<br>3. Выберите место для сохранения';
+        
+        // Вставляем инструкцию после canvas
+        highQualityCanvas.parentNode.insertBefore(instruction, highQualityCanvas.nextSibling);
+        
+    } catch (error) {
+        console.error('Ошибка создания изображения:', error);
+    }
+}
+
 // Вспомогательная функция для разбивки текста на строки
-function splitTextIntoLines(text, maxCharsPerLine, context = null) {
+function splitTextIntoLines(text, maxWidth, context) {
     const words = text.split(' ');
     const lines = [];
     let currentLine = words[0] || '';
     
-    // Если передан контекст canvas, используем точное измерение
-    if (context) {
-        for (let i = 1; i < words.length; i++) {
-            const testLine = currentLine + ' ' + words[i];
-            const metrics = context.measureText(testLine);
-            
-            if (metrics.width <= maxCharsPerLine) {
-                currentLine = testLine;
-            } else {
-                lines.push(currentLine);
-                currentLine = words[i];
-            }
-        }
-    } else {
-        // Простая разбивка по количеству символов
-        for (let i = 1; i < words.length; i++) {
-            const word = words[i];
-            if (currentLine.length + word.length + 1 <= maxCharsPerLine) {
-                currentLine += ' ' + word;
-            } else {
-                lines.push(currentLine);
-                currentLine = word;
-            }
+    for (let i = 1; i < words.length; i++) {
+        const testLine = currentLine + ' ' + words[i];
+        const metrics = context.measureText(testLine);
+        
+        if (metrics.width <= maxWidth) {
+            currentLine = testLine;
+        } else {
+            lines.push(currentLine);
+            currentLine = words[i];
         }
     }
     
-    lines.push(currentLine);
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+    
     return lines;
 }
 
 // Назначаем обработчики событий
 previewBtn.addEventListener('click', showPreview);
-generateBtn.addEventListener('click', generatePDF);
+downloadImageBtn.addEventListener('click', downloadHighQualityImage);
 
-// Запускаем предпросмотр при изменении текста
-[nameInput, codeInput, congratsInput].forEach(input => {
-    input.addEventListener('input', () => {
-        if (nameInput.value.trim() && codeInput.value.trim()) {
-            // Не запускаем автоматически, чтобы не нагружать
-            // Можно добавить debounce при необходимости
-        }
-    });
+// Автоматическое обновление предпросмотра при изменении текста
+const inputs = [nameInput, amountInput, codeInput, congratsInput];
+inputs.forEach(input => {
+    if (input) {
+        input.addEventListener('input', () => {
+            // Используем debounce для избежания частых обновлений
+            clearTimeout(window.previewTimeout);
+            window.previewTimeout = setTimeout(() => {
+                if (nameInput.value.trim() && codeInput.value.trim()) {
+                    showPreview();
+                }
+            }, 500);
+        });
+    }
 });
 
 // Инициализация при загрузке DOM
 window.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 Генератор сертификатов "Бишкек" загружен!');
-    console.log('⚙️ Координаты настроены для sert.pdf');
+    console.log('🚀 Генератор новогодних сертификатов загружен!');
     
-    // Проверяем доступность библиотек
-    if (typeof PDFLib === 'undefined') {
-        console.error('❌ PDFLib не загружен!');
-        if (statusDiv) showStatus('Ошибка: библиотека PDFLib не загружена. Проверьте подключение.', 'error');
+    // Проверяем доступность библиотеки pdf.js
+    if (typeof pdfjsLib === 'undefined') {
+        console.error('❌ pdf.js не загружена!');
+        if (statusDiv) showStatus('Ошибка: библиотека pdf.js не загружена. Проверьте подключение.', 'error');
         return;
     } else {
-        console.log('✅ PDFLib загружен');
+        console.log('✅ pdf.js загружена');
     }
     
-    if (typeof pdfjsLib === 'undefined' && (!window.pdfjsLib)) {
-        console.warn('⚠️ pdf.js не загружен (предпросмотр может не работать)');
+    // Настраиваем pdf.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    
+    // Загружаем шаблон
+    console.log('📄 Начинаю загрузку шаблона PDF...');
+    const loaded = await loadTemplatePDF();
+    if (!loaded) {
+        console.error('❌ Не удалось загрузить шаблон');
     } else {
-        console.log('✅ pdf.js загружен');
+        console.log('✅ Шаблон загружен, можно работать');
+        
+        // Показываем начальный предпросмотр, если данные уже введены
+        if (nameInput.value.trim() && codeInput.value.trim()) {
+            showPreview();
+        }
     }
     
-        // Загружаем шаблон
-        console.log('📄 Начинаю загрузку шаблона PDF...');
-        const loaded = await loadTemplatePDF();
-        if (!loaded) {
-            console.error('❌ Не удалось загрузить шаблон');
-            // Статус ошибки уже показан в loadTemplatePDF
-        } else {
-            console.log('✅ Шаблон загружен, можно работать');
-        }
+    // Добавляем обработчик клика на высококачественное изображение для сохранения
+    highQualityCanvas.addEventListener('click', () => {
+        showHighQualityImage();
+    });
 });
+
+// Устанавливаем плейсхолдер для поздравления
+if (congratsInput) {
+    congratsInput.placeholder = "поздравляю тебя с Новым Годом! Пусть этот год принесет тебе много радости, счастья и успехов во всех начинаниях!";
+}
