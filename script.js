@@ -7,18 +7,19 @@ const CONFIG = {
     // Координаты текста (x, y) в пикселях от левого верхнего угла
     // Координаты рамок: x, y, width, height
     textPositions: {
-        // Имя: x 57 y 374 w 515 h 83
-        name: { x: 57, y: 374, w: 515, h: 83 },
-        // Поздравление: x 57 y 480 w 515 h 129
-        congrats: { x: 57, y: 480, w: 515, h: 129 },
-        // Код сертификата: x 73 y 680 w 485 h 70
-        code: { x: 73, y: 680, w: 485, h: 70 },
-        // Сумма сертификата: x 509 y 233 w 240 h 69
-        amount: { x: 509, y: 233, w: 240, h: 69 }
+        // сумма подарка: x: 504, y: 233, width: 261, height: 73
+        amount: { x: 504, y: 233, w: 261, h: 73 },
+        // Имя: x: 52, y: 347, width: 337, height: 64
+        name: { x: 52, y: 347, w: 337, h: 64 },
+        // Поздравления: x: 52, y: 441, width: 472, height: 155
+        congrats: { x: 52, y: 441, w: 472, h: 155 },
+        // код сертификата: x: 52, y: 671, width: 397, height: 71
+        code: { x: 52, y: 671, w: 397, h: 71 }
     },
     
     // Настройки шрифтов
     fontSize: {
+        amount: 32,   // Размер для суммы подарка
         name: 36,     // Размер для имени
         code: 24,     // Размер для кода
         congrats: 18  // Размер для поздравления
@@ -28,12 +29,13 @@ const CONFIG = {
     fontColor: { r: 0.1725, g: 0.2431, b: 0.3137 }, // #2c3e50
     
     // Максимальная ширина текста поздравления (в пикселях)
-    congratsMaxWidth: 515
+    congratsMaxWidth: 472
 };
 // ================= КОНЕЦ КОНФИГУРАЦИИ =================
 
 // Получаем элементы DOM
 const nameInput = document.getElementById('name');
+const amountInput = document.getElementById('amount');
 const codeInput = document.getElementById('code');
 const congratsInput = document.getElementById('congrats');
 const previewBtn = document.getElementById('previewBtn');
@@ -176,6 +178,14 @@ async function showPreview() {
         ctx.textBaseline = 'top';
         ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
         
+        // Рисуем сумму подарка (если указана)
+        if (amountInput && amountInput.value.trim()) {
+            const amountCenterY = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
+            const amountBaselineY = amountCenterY - CONFIG.fontSize.amount * 0.75;
+            ctx.font = `bold ${CONFIG.fontSize.amount * textScale}px Arial`;
+            ctx.fillText(amountInput.value.trim(), CONFIG.textPositions.amount.x * textScale, amountBaselineY * textScale);
+        }
+        
         // Рисуем имя
         const nameCenterY = CONFIG.textPositions.name.y + CONFIG.textPositions.name.h / 2;
         const nameBaselineY = nameCenterY - CONFIG.fontSize.name * 0.75;
@@ -264,6 +274,20 @@ async function generatePDF() {
         // В PDF координата Y идет снизу вверх, поэтому нужно конвертировать
         // page.drawText использует Y как baseline (примерно 0.75 * fontSize от верха текста)
         
+        // Сумма подарка (если указана)
+        if (amountInput && amountInput.value.trim()) {
+            const amountCenterFromTop = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
+            const amountBaselineFromTop = amountCenterFromTop - CONFIG.fontSize.amount * 0.75;
+            const amountY = pageHeight - amountBaselineFromTop;
+            page.drawText(amountInput.value.trim(), {
+                x: CONFIG.textPositions.amount.x,
+                y: amountY,
+                size: CONFIG.fontSize.amount,
+                font: boldFont,
+                color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
+            });
+        }
+        
         // Имя (жирным) - позиционируем в центре блока по вертикали
         // Центр блока от верха: blockY + blockH/2
         // Baseline от центра: -fontSize * 0.75
@@ -326,11 +350,23 @@ async function generatePDF() {
         const blob = new Blob([pdfBytes], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         
+        // Создаем ссылку для скачивания
         const link = document.createElement('a');
         link.href = url;
         link.download = `Certificate_${nameInput.value.replace(/\s+/g, '_')}.pdf`;
+        link.style.display = 'none';
         document.body.appendChild(link);
-        link.click();
+        
+        // Программно кликаем по ссылке для скачивания
+        try {
+            link.click();
+            console.log('✅ Скачивание PDF запущено');
+        } catch (error) {
+            console.error('Ошибка при скачивании:', error);
+            // Показываем ссылку пользователю как запасной вариант
+            showStatus(`✅ PDF создан! <a href="${url}" download="${link.download}">Скачать PDF</a>`, 'success');
+        }
+        
         document.body.removeChild(link);
         
         // Освобождаем память
