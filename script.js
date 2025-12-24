@@ -19,8 +19,8 @@ const CONFIG = {
         congrats: 20  // Размер для поздравления
     },
     
-    // Цвет текста (HEX формат)
-    fontColor: '#2c3e50',
+    // Цвет текста в формате RGB (от 0 до 1)
+    fontColor: { r: 0.1725, g: 0.2431, b: 0.3137 }, // #2c3e50
     
     // Шрифт (стандартные шрифты PDF)
     fontFamily: 'Helvetica-Bold',
@@ -99,7 +99,7 @@ async function showPreview() {
         // Настраиваем стиль текста
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillStyle = CONFIG.fontColor;
+        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
         
         // Рисуем имя
         ctx.font = `bold ${CONFIG.fontSize.name}px Arial`;
@@ -185,7 +185,7 @@ async function generatePDF() {
             y: page.getHeight() - CONFIG.textPositions.name.y,
             size: CONFIG.fontSize.name,
             font: font,
-            color: PDFLib.rgbHex(CONFIG.fontColor),
+            color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
         });
         
         // Код
@@ -194,7 +194,7 @@ async function generatePDF() {
             y: page.getHeight() - CONFIG.textPositions.code.y,
             size: CONFIG.fontSize.code,
             font: font,
-            color: PDFLib.rgbHex(CONFIG.fontColor),
+            color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
         });
         
         // Поздравление (с разбивкой на строки)
@@ -208,7 +208,7 @@ async function generatePDF() {
                 y: startY - (index * lineHeight),
                 size: CONFIG.fontSize.congrats,
                 font: font,
-                color: PDFLib.rgbHex(CONFIG.fontColor),
+                color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
             });
         });
         
