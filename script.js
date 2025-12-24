@@ -74,9 +74,10 @@ async function loadTemplatePDF() {
         }
         
         isTemplateLoaded = true;
-        console.log('✅ Шаблон сертификата загружен');
+        console.log('✅ Шаблон сертификата загружен успешно');
         if (statusDiv) {
-            showStatus('Шаблон загружен успешно', 'success');
+            // Не показываем сообщение об успехе автоматически, только при ошибке
+            // showStatus('Шаблон загружен успешно', 'success');
         }
         return true;
     } catch (error) {
@@ -85,8 +86,12 @@ async function loadTemplatePDF() {
         
         // Проверяем, не открыт ли файл через file://
         if (window.location.protocol === 'file:') {
-            errorMessage += '. Файл открыт через file://. Запустите через HTTP сервер (например: python3 -m http.server)';
+            errorMessage += '. Файл открыт через file://. Запустите через HTTP сервер: python3 -m http.server 8000, затем откройте http://localhost:8000';
         }
+        
+        // Устанавливаем флаг в false явно
+        isTemplateLoaded = false;
+        templatePdfBytes = null;
         
         if (statusDiv) {
             showStatus(errorMessage, 'error');
@@ -94,11 +99,6 @@ async function loadTemplatePDF() {
         return false;
     }
 }
-
-// Инициализация загрузки шаблона после загрузки DOM
-window.addEventListener('DOMContentLoaded', () => {
-    loadTemplatePDF();
-});
 
 // Функция показа статуса
 function showStatus(message, type = 'success') {
@@ -114,7 +114,12 @@ function showStatus(message, type = 'success') {
 // Функция предпросмотра
 async function showPreview() {
     if (!isTemplateLoaded || !templatePdfBytes) {
-        showStatus('Шаблон еще загружается. Подождите немного.', 'error');
+        if (!templatePdfBytes) {
+            showStatus('Ошибка: шаблон не загружен. Проверьте консоль браузера (F12) или обновите страницу.', 'error');
+            console.error('Шаблон не загружен. Попробуйте перезагрузить страницу.');
+        } else {
+            showStatus('Шаблон еще загружается. Подождите немного.', 'error');
+        }
         return;
     }
     
@@ -216,7 +221,13 @@ async function showPreview() {
 // Функция генерации PDF
 async function generatePDF() {
     if (!isTemplateLoaded || !templatePdfBytes) {
-        showStatus('Шаблон еще загружается. Подождите немного.', 'error');
+        // Проверяем, была ли попытка загрузки
+        if (!templatePdfBytes) {
+            showStatus('Ошибка: шаблон не загружен. Проверьте консоль браузера (F12) или обновите страницу.', 'error');
+            console.error('Шаблон не загружен. Попробуйте перезагрузить страницу.');
+        } else {
+            showStatus('Шаблон еще загружается. Подождите немного.', 'error');
+        }
         return;
     }
     
@@ -383,8 +394,8 @@ generateBtn.addEventListener('click', generatePDF);
     });
 });
 
-// Сообщение при загрузке
-window.addEventListener('DOMContentLoaded', () => {
+// Инициализация при загрузке DOM
+window.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 Генератор сертификатов "Бишкек" загружен!');
     console.log('⚙️ Координаты настроены для sert.pdf');
     
@@ -392,6 +403,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (typeof PDFLib === 'undefined') {
         console.error('❌ PDFLib не загружен!');
         if (statusDiv) showStatus('Ошибка: библиотека PDFLib не загружена. Проверьте подключение.', 'error');
+        return;
     } else {
         console.log('✅ PDFLib загружен');
     }
@@ -401,4 +413,14 @@ window.addEventListener('DOMContentLoaded', () => {
     } else {
         console.log('✅ pdf.js загружен');
     }
+    
+        // Загружаем шаблон
+        console.log('📄 Начинаю загрузку шаблона PDF...');
+        const loaded = await loadTemplatePDF();
+        if (!loaded) {
+            console.error('❌ Не удалось загрузить шаблон');
+            // Статус ошибки уже показан в loadTemplatePDF
+        } else {
+            console.log('✅ Шаблон загружен, можно работать');
+        }
 });
