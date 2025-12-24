@@ -26,7 +26,8 @@ const CONFIG = {
     },
     
     // Цвет текста в формате RGB (от 0 до 1)
-    fontColor: { r: 0.1725, g: 0.2431, b: 0.3137 }, // #2c3e50
+    fontColor: { r: 0, g: 0, b: 0 }, // Черный
+    nameColor: { r: 1, g: 1, b: 1 }, // Белый для имени
     
     // Максимальная ширина текста поздравления (в пикселях)
     congratsMaxWidth: 472
@@ -176,53 +177,57 @@ async function showPreview() {
             viewport: viewport
         }).promise;
         
-        // Добавляем текст поверх
+        // Добавляем текст поверх (соответствует новому расположению)
         const textScale = scale;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
         
-        // Рисуем сумму подарка (если указана)
-        if (amountInput && amountInput.value.trim()) {
-            const amountCenterY = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
-            const amountBaselineY = amountCenterY - CONFIG.fontSize.amount * 0.75;
-            ctx.font = `bold ${CONFIG.fontSize.amount * textScale}px Arial`;
-            ctx.fillText(amountInput.value.trim(), CONFIG.textPositions.amount.x * textScale, amountBaselineY * textScale);
-        }
-        
-        // Рисуем имя
-        const nameCenterY = CONFIG.textPositions.name.y + CONFIG.textPositions.name.h / 2;
+        // ИМЯ - БЕЛЫМ цветом, выше (на позиции amount)
+        const nameCenterY = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
         const nameBaselineY = nameCenterY - CONFIG.fontSize.name * 0.75;
         ctx.font = `bold ${CONFIG.fontSize.name * textScale}px Arial`;
-        ctx.fillText(nameInput.value, CONFIG.textPositions.name.x * textScale, nameBaselineY * textScale);
+        ctx.fillStyle = `rgb(${Math.round(CONFIG.nameColor.r * 255)}, ${Math.round(CONFIG.nameColor.g * 255)}, ${Math.round(CONFIG.nameColor.b * 255)})`;
+        ctx.fillText(nameInput.value, CONFIG.textPositions.amount.x * textScale, nameBaselineY * textScale);
         
-        // Рисуем код
-        const codeCenterY = CONFIG.textPositions.code.y + CONFIG.textPositions.code.h / 2;
-        const codeBaselineY = codeCenterY - CONFIG.fontSize.code * 0.75;
-        ctx.font = `bold ${CONFIG.fontSize.code * textScale}px Arial`;
-        ctx.fillText(codeInput.value, CONFIG.textPositions.code.x * textScale, codeBaselineY * textScale);
+        // Сумма подарка - ЧЕРНЫМ, выше и левее
+        if (amountInput && amountInput.value.trim()) {
+            const amountYPos = CONFIG.textPositions.name.y - 50;
+            const amountCenterY = amountYPos + CONFIG.textPositions.name.h / 2;
+            const amountBaselineY = amountCenterY - CONFIG.fontSize.amount * 0.75;
+            ctx.font = `bold ${CONFIG.fontSize.amount * textScale}px Arial`;
+            ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
+            ctx.fillText(amountInput.value.trim(), CONFIG.textPositions.name.x * textScale, amountBaselineY * textScale);
+        }
         
-        // Рисуем поздравление
+        // Поздравление - ЧЕРНЫМ, на месте имени (позиция name)
         ctx.font = `${CONFIG.fontSize.congrats * textScale}px Arial`;
+        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
         const congratsLines = splitTextIntoLines(
             congratsInput.value, 
-            CONFIG.congratsMaxWidth * textScale, 
+            CONFIG.textPositions.name.w * textScale, 
             ctx
         );
         const lineHeight = (CONFIG.fontSize.congrats + 5) * textScale;
         const totalTextHeight = (congratsLines.length - 1) * lineHeight;
-        const congratsYOffset = (CONFIG.textPositions.congrats.h * textScale - totalTextHeight) / 2;
-        const firstLineBaselineY = CONFIG.textPositions.congrats.y * textScale + congratsYOffset + CONFIG.fontSize.congrats * 0.75 * textScale;
+        const congratsYOffset = (CONFIG.textPositions.name.h * textScale - totalTextHeight) / 2;
+        const firstLineBaselineY = CONFIG.textPositions.name.y * textScale + congratsYOffset + CONFIG.fontSize.congrats * 0.75 * textScale;
         
         congratsLines.forEach((line, index) => {
             if (line.trim()) {
                 ctx.fillText(
                     line, 
-                    CONFIG.textPositions.congrats.x * textScale, 
+                    CONFIG.textPositions.name.x * textScale, 
                     firstLineBaselineY + (index * lineHeight)
                 );
             }
         });
+        
+        // Код сертификата - ЧЕРНЫМ, на месте поздравления (позиция congrats)
+        const codeCenterY = CONFIG.textPositions.congrats.y + CONFIG.textPositions.congrats.h / 2;
+        const codeBaselineY = codeCenterY - CONFIG.fontSize.code * 0.75;
+        ctx.font = `bold ${CONFIG.fontSize.code * textScale}px Arial`;
+        ctx.fillStyle = `rgb(${Math.round(CONFIG.fontColor.r * 255)}, ${Math.round(CONFIG.fontColor.g * 255)}, ${Math.round(CONFIG.fontColor.b * 255)})`;
+        ctx.fillText(codeInput.value, CONFIG.textPositions.congrats.x * textScale, codeBaselineY * textScale);
         
         showStatus('Предпросмотр обновлен. Проверьте расположение текста.', 'success');
         
@@ -271,119 +276,120 @@ async function generatePDF() {
         const pageHeight = page.getHeight();
         
         // 3. Загружаем шрифты с поддержкой кириллицы
-        // Используем шрифт Roboto из CDN (TTF формат, поддерживает кириллицу)
+        // Используем шрифт DejaVu Sans (поддерживает кириллицу)
         let font, boldFont;
         try {
-            // Загружаем обычный шрифт Roboto Regular (TTF)
-            const fontResponse = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/Roboto-Regular.ttf');
-            if (!fontResponse.ok) {
-                throw new Error('Не удалось загрузить обычный шрифт');
-            }
-            const fontBytes = await fontResponse.arrayBuffer();
-            font = await pdfDoc.embedFont(fontBytes);
-            console.log('✅ Обычный шрифт загружен');
+            // Используем DejaVu Sans из надежного источника
+            const fontUrl = 'https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf';
+            const boldFontUrl = 'https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf';
             
-            // Загружаем жирный шрифт Roboto Bold (TTF)
-            const boldFontResponse = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/Roboto-Bold.ttf');
-            if (!boldFontResponse.ok) {
-                throw new Error('Не удалось загрузить жирный шрифт');
+            const [fontResponse, boldFontResponse] = await Promise.all([
+                fetch(fontUrl),
+                fetch(boldFontUrl)
+            ]);
+            
+            if (!fontResponse.ok || !boldFontResponse.ok) {
+                throw new Error('Не удалось загрузить шрифты');
             }
-            const boldFontBytes = await boldFontResponse.arrayBuffer();
+            
+            const [fontBytes, boldFontBytes] = await Promise.all([
+                fontResponse.arrayBuffer(),
+                boldFontResponse.arrayBuffer()
+            ]);
+            
+            font = await pdfDoc.embedFont(fontBytes);
             boldFont = await pdfDoc.embedFont(boldFontBytes);
-            console.log('✅ Жирный шрифт загружен');
+            console.log('✅ Шрифты DejaVu Sans загружены успешно');
         } catch (fontError) {
-            console.error('Ошибка загрузки шрифтов:', fontError);
-            // Если не получилось, пробуем альтернативный источник
+            console.error('Ошибка загрузки DejaVu, пробую Roboto:', fontError);
             try {
-                const altFontResponse = await fetch('https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf');
-                const altBoldFontResponse = await fetch('https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf');
+                // Резервный вариант - Roboto из другого источника
+                const fontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf';
+                const boldFontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf';
                 
-                if (altFontResponse.ok && altBoldFontResponse.ok) {
-                    font = await pdfDoc.embedFont(await altFontResponse.arrayBuffer());
-                    boldFont = await pdfDoc.embedFont(await altBoldFontResponse.arrayBuffer());
-                    console.log('✅ Шрифты загружены из альтернативного источника');
+                const [fontResponse, boldFontResponse] = await Promise.all([
+                    fetch(fontUrl),
+                    fetch(boldFontUrl)
+                ]);
+                
+                if (fontResponse.ok && boldFontResponse.ok) {
+                    font = await pdfDoc.embedFont(await fontResponse.arrayBuffer());
+                    boldFont = await pdfDoc.embedFont(await boldFontResponse.arrayBuffer());
+                    console.log('✅ Шрифты Roboto загружены');
                 } else {
-                    throw new Error('Альтернативный источник тоже не работает');
+                    throw new Error('Не удалось загрузить резервные шрифты');
                 }
             } catch (altError) {
-                console.error('Критическая ошибка: не удалось загрузить шрифты с поддержкой кириллицы:', altError);
+                console.error('Критическая ошибка загрузки шрифтов:', altError);
                 throw new Error('Не удалось загрузить шрифты с поддержкой кириллицы. Проверьте интернет-соединение.');
             }
         }
         
-        // 4. Добавляем текст в PDF
+        // 4. Добавляем текст в PDF согласно требованиям
         // В PDF координата Y идет снизу вверх, поэтому нужно конвертировать
         // page.drawText использует Y как baseline (примерно 0.75 * fontSize от верха текста)
         
-        // Сумма подарка (если указана)
-        if (amountInput && amountInput.value.trim()) {
-            const amountCenterFromTop = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
-            const amountBaselineFromTop = amountCenterFromTop - CONFIG.fontSize.amount * 0.75;
-            const amountY = pageHeight - amountBaselineFromTop;
-            page.drawText(amountInput.value.trim(), {
-                x: CONFIG.textPositions.amount.x,
-                y: amountY,
-                size: CONFIG.fontSize.amount,
-                font: boldFont,
-                color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
-            });
-        }
-        
-        // Имя (жирным) - позиционируем в центре блока по вертикали
-        // Центр блока от верха: blockY + blockH/2
-        // Baseline от центра: -fontSize * 0.75
-        const nameCenterFromTop = CONFIG.textPositions.name.y + CONFIG.textPositions.name.h / 2;
+        // ИМЯ - БЕЛЫМ цветом, выше (на позиции amount)
+        const nameCenterFromTop = CONFIG.textPositions.amount.y + CONFIG.textPositions.amount.h / 2;
         const nameBaselineFromTop = nameCenterFromTop - CONFIG.fontSize.name * 0.75;
         const nameY = pageHeight - nameBaselineFromTop;
         page.drawText(nameInput.value, {
-            x: CONFIG.textPositions.name.x,
+            x: CONFIG.textPositions.amount.x,
             y: nameY,
             size: CONFIG.fontSize.name,
             font: boldFont,
-            color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
+            color: PDFLib.rgb(CONFIG.nameColor.r, CONFIG.nameColor.g, CONFIG.nameColor.b), // БЕЛЫЙ
         });
         
-        // Код сертификата (жирным)
-        const codeCenterFromTop = CONFIG.textPositions.code.y + CONFIG.textPositions.code.h / 2;
-        const codeBaselineFromTop = codeCenterFromTop - CONFIG.fontSize.code * 0.75;
-        const codeY = pageHeight - codeBaselineFromTop;
-        page.drawText(codeInput.value, {
-            x: CONFIG.textPositions.code.x,
-            y: codeY,
-            size: CONFIG.fontSize.code,
-            font: boldFont,
-            color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
-        });
+        // Сумма подарка - ЧЕРНЫМ, выше и левее (позиция name, но выше)
+        if (amountInput && amountInput.value.trim()) {
+            // Используем позицию name, но сдвигаем выше на 50 пикселей
+            const amountYPos = CONFIG.textPositions.name.y - 50;
+            const amountCenterFromTop = amountYPos + CONFIG.textPositions.name.h / 2;
+            const amountBaselineFromTop = amountCenterFromTop - CONFIG.fontSize.amount * 0.75;
+            const amountY = pageHeight - amountBaselineFromTop;
+            page.drawText(amountInput.value.trim(), {
+                x: CONFIG.textPositions.name.x, // Левее
+                y: amountY,
+                size: CONFIG.fontSize.amount,
+                font: boldFont,
+                color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b), // ЧЕРНЫЙ
+            });
+        }
         
-        // Поздравление (обычным, с переносом строк)
-        // Оцениваем максимальное количество символов на строку на основе ширины
-        // Средняя ширина символа примерно fontSize * 0.6
+        // Поздравление - ЧЕРНЫМ, на месте имени (позиция name)
         const avgCharWidth = CONFIG.fontSize.congrats * 0.6;
-        const maxCharsPerLine = Math.floor(CONFIG.congratsMaxWidth / avgCharWidth);
+        const maxCharsPerLine = Math.floor(CONFIG.textPositions.name.w / avgCharWidth);
         const congratsLines = splitTextIntoLines(congratsInput.value, maxCharsPerLine);
         const lineHeight = CONFIG.fontSize.congrats + 4;
-        
-        // Центрируем текст поздравления по вертикали в блоке
-        // Высота всего текста (от baseline первой строки до baseline последней строки)
         const totalTextHeight = (congratsLines.length - 1) * lineHeight;
-        const congratsYOffset = (CONFIG.textPositions.congrats.h - totalTextHeight) / 2;
-        // Baseline первой строки от верха блока (центр блока минус половина высоты текста)
+        const congratsYOffset = (CONFIG.textPositions.name.h - totalTextHeight) / 2;
         const firstLineBaselineFromBlockTop = congratsYOffset + CONFIG.fontSize.congrats * 0.75;
-        // Baseline первой строки от верха страницы
-        const firstLineBaselineFromTop = CONFIG.textPositions.congrats.y + firstLineBaselineFromBlockTop;
-        // В PDF координатах (от низа страницы)
+        const firstLineBaselineFromTop = CONFIG.textPositions.name.y + firstLineBaselineFromBlockTop;
         const firstLineY = pageHeight - firstLineBaselineFromTop;
         
         congratsLines.forEach((line, index) => {
-            if (line.trim()) { // Пропускаем пустые строки
+            if (line.trim()) {
                 page.drawText(line, {
-                    x: CONFIG.textPositions.congrats.x,
+                    x: CONFIG.textPositions.name.x,
                     y: firstLineY - (index * lineHeight),
                     size: CONFIG.fontSize.congrats,
                     font: font,
-                    color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b),
+                    color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b), // ЧЕРНЫЙ
                 });
             }
+        });
+        
+        // Код сертификата - ЧЕРНЫМ, на месте поздравления (позиция congrats)
+        const codeCenterFromTop = CONFIG.textPositions.congrats.y + CONFIG.textPositions.congrats.h / 2;
+        const codeBaselineFromTop = codeCenterFromTop - CONFIG.fontSize.code * 0.75;
+        const codeY = pageHeight - codeBaselineFromTop;
+        page.drawText(codeInput.value, {
+            x: CONFIG.textPositions.congrats.x,
+            y: codeY,
+            size: CONFIG.fontSize.code,
+            font: boldFont,
+            color: PDFLib.rgb(CONFIG.fontColor.r, CONFIG.fontColor.g, CONFIG.fontColor.b), // ЧЕРНЫЙ
         });
         
         // 5. Сохраняем PDF и предлагаем скачать
@@ -398,22 +404,28 @@ async function generatePDF() {
         link.style.display = 'none';
         document.body.appendChild(link);
         
-        // Программно кликаем по ссылке для скачивания
-        try {
-            link.click();
-            console.log('✅ Скачивание PDF запущено');
-        } catch (error) {
-            console.error('Ошибка при скачивании:', error);
-            // Показываем ссылку пользователю как запасной вариант
-            showStatus(`✅ PDF создан! <a href="${url}" download="${link.download}">Скачать PDF</a>`, 'success');
-        }
-        
-        document.body.removeChild(link);
-        
-        // Освобождаем память
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        
-        showStatus(`✅ Сертификат для "${nameInput.value}" успешно создан и скачан!`, 'success');
+        // Используем requestAnimationFrame для надежного скачивания
+        requestAnimationFrame(() => {
+            try {
+                link.click();
+                console.log('✅ Скачивание PDF запущено');
+                showStatus(`✅ Сертификат для "${nameInput.value}" успешно создан и скачан!`, 'success');
+                
+                // Удаляем ссылку и освобождаем память через небольшую задержку
+                setTimeout(() => {
+                    if (document.body.contains(link)) {
+                        document.body.removeChild(link);
+                    }
+                    URL.revokeObjectURL(url);
+                }, 200);
+            } catch (error) {
+                console.error('Ошибка при скачивании:', error);
+                showStatus(`Ошибка скачивания: ${error.message}. Попробуйте еще раз.`, 'error');
+                if (document.body.contains(link)) {
+                    document.body.removeChild(link);
+                }
+            }
+        });
         
     } catch (error) {
         console.error('Ошибка генерации PDF:', error);
